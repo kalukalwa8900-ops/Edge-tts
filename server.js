@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const { MsEdgeTTS, OUTPUT_FORMAT } = require("edge-tts-node");
+const { MsEdgeTTS, OUTPUT_FORMAT } = require("msedge-tts");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,8 +14,8 @@ app.get("/", (req, res) => {
   res.json({
     status: "ok",
     service: "Edge TTS API",
-    version: "1.0.0",
-    endpoints: ["/tts", "/voices", "/health"],
+    version: "2.0.0",
+    endpoints: ["/tts", "/tts-base64", "/voices", "/health"],
   });
 });
 
@@ -31,27 +31,26 @@ app.get("/voices", async (req, res) => {
     res.json({ success: true, count: voices.length, voices });
   } catch (err) {
     console.error("Voices Error:", err.message);
-    // Return fallback voices so frontend never breaks
     res.json({
       success: true,
       fallback: true,
       voices: [
-        { Name: "hi-IN-SwaraNeural",   FriendlyName: "Hindi - Swara (Female)",   Locale: "hi-IN", Gender: "Female" },
-        { Name: "hi-IN-MadhurNeural",  FriendlyName: "Hindi - Madhur (Male)",    Locale: "hi-IN", Gender: "Male"   },
-        { Name: "en-US-AriaNeural",    FriendlyName: "English US - Aria",         Locale: "en-US", Gender: "Female" },
-        { Name: "en-US-GuyNeural",     FriendlyName: "English US - Guy",          Locale: "en-US", Gender: "Male"   },
-        { Name: "en-IN-NeerjaNeural",  FriendlyName: "English India - Neerja",    Locale: "en-IN", Gender: "Female" },
-        { Name: "en-GB-SoniaNeural",   FriendlyName: "English UK - Sonia",        Locale: "en-GB", Gender: "Female" },
-        { Name: "ta-IN-PallaviNeural", FriendlyName: "Tamil - Pallavi (Female)",  Locale: "ta-IN", Gender: "Female" },
-        { Name: "te-IN-ShrutiNeural",  FriendlyName: "Telugu - Shruti (Female)",  Locale: "te-IN", Gender: "Female" },
-        { Name: "mr-IN-AarohiNeural",  FriendlyName: "Marathi - Aarohi (Female)", Locale: "mr-IN", Gender: "Female" },
-        { Name: "bn-IN-TanishaaNeural",FriendlyName: "Bengali - Tanishaa (Female)",Locale:"bn-IN", Gender: "Female" },
+        { Name: "hi-IN-SwaraNeural",    FriendlyName: "Hindi - Swara (Female)",    Locale: "hi-IN", Gender: "Female" },
+        { Name: "hi-IN-MadhurNeural",   FriendlyName: "Hindi - Madhur (Male)",     Locale: "hi-IN", Gender: "Male"   },
+        { Name: "en-US-AriaNeural",     FriendlyName: "English US - Aria",          Locale: "en-US", Gender: "Female" },
+        { Name: "en-US-GuyNeural",      FriendlyName: "English US - Guy",           Locale: "en-US", Gender: "Male"   },
+        { Name: "en-IN-NeerjaNeural",   FriendlyName: "English India - Neerja",     Locale: "en-IN", Gender: "Female" },
+        { Name: "en-GB-SoniaNeural",    FriendlyName: "English UK - Sonia",         Locale: "en-GB", Gender: "Female" },
+        { Name: "ta-IN-PallaviNeural",  FriendlyName: "Tamil - Pallavi (Female)",   Locale: "ta-IN", Gender: "Female" },
+        { Name: "te-IN-ShrutiNeural",   FriendlyName: "Telugu - Shruti (Female)",   Locale: "te-IN", Gender: "Female" },
+        { Name: "mr-IN-AarohiNeural",   FriendlyName: "Marathi - Aarohi (Female)",  Locale: "mr-IN", Gender: "Female" },
+        { Name: "bn-IN-TanishaaNeural", FriendlyName: "Bengali - Tanishaa (Female)", Locale: "bn-IN", Gender: "Female" },
       ],
     });
   }
 });
 
-// ── /tts ───────────────────────────────────────────────────────────────────
+// ── /tts (streaming) ───────────────────────────────────────────────────────
 app.post("/tts", async (req, res) => {
   const {
     text  = "Hello test",
@@ -60,7 +59,6 @@ app.post("/tts", async (req, res) => {
     pitch = "+0Hz",
   } = req.body;
 
-  // Validate
   if (!text || text.trim() === "") {
     return res.status(400).json({ error: "text is required" });
   }
@@ -73,65 +71,38 @@ app.post("/tts", async (req, res) => {
   try {
     const tts = new MsEdgeTTS();
 
-    // STEP 1: Set metadata (network call to Microsoft)
-    try {
-      await tts.setMetadata(
-        voice,
-        OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3
-      );
-    } catch (metaErr) {
-      console.error("Metadata failed:", metaErr.message);
-      return res.status(500).json({
-        error: "Voice metadata fetch failed",
-        detail: metaErr.message,
-        hint: "Microsoft TTS servers may be unreachable from this server",
-      });
-    }
+    await tts.setMetadata(
+      voice,
+      OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3
+    );
 
-    // STEP 2: Create audio stream
-    let stream;
-    try {
-      stream = tts.toStream(text, { rate, pitch });
-    } catch (streamErr) {
-      console.error("Stream creation failed:", streamErr.message);
-      return res.status(500).json({
-        error: "Audio stream initialization failed",
-        detail: streamErr.message,
-      });
-    }
+    const { audioStream } = await tts.toStream(text);
 
-    // STEP 3: Pipe stream to response
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Transfer-Encoding", "chunked");
     res.setHeader("Cache-Control", "no-cache");
 
-    stream.on("error", (err) => {
-      console.error("Stream runtime error:", err.message);
+    audioStream.on("error", (err) => {
+      console.error("Stream error:", err.message);
       if (!res.headersSent) {
-        res.status(500).json({ error: "Audio stream failed mid-transfer" });
+        res.status(500).json({ error: "Audio stream failed" });
       } else {
-        res.end(); // Headers already sent — just close
+        res.end();
       }
     });
 
-    stream.on("end", () => {
-      console.log("TTS stream complete");
-    });
-
-    stream.pipe(res);
+    audioStream.on("end", () => console.log("TTS stream complete"));
+    audioStream.pipe(res);
 
   } catch (err) {
     console.error("TTS Fatal Error:", err.message);
     if (!res.headersSent) {
-      res.status(500).json({
-        error: "TTS crashed unexpectedly",
-        detail: err.message,
-      });
+      res.status(500).json({ error: "TTS failed", detail: err.message });
     }
   }
 });
 
-// ── /tts-base64 (alternative — returns base64 JSON, no streaming issues) ──
+// ── /tts-base64 ────────────────────────────────────────────────────────────
 app.post("/tts-base64", async (req, res) => {
   const {
     text  = "Hello test",
@@ -151,21 +122,20 @@ app.post("/tts-base64", async (req, res) => {
 
     await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
 
-    const stream = tts.toStream(text, { rate, pitch });
+    const { audioStream } = await tts.toStream(text);
 
     const chunks = [];
-    stream.on("data", (chunk) => chunks.push(chunk));
-    stream.on("end", () => {
+    audioStream.on("data", (chunk) => chunks.push(chunk));
+    audioStream.on("end", () => {
       const buffer = Buffer.concat(chunks);
-      const base64 = buffer.toString("base64");
       res.json({
         success: true,
-        audio: base64,
+        audio: buffer.toString("base64"),
         mimeType: "audio/mpeg",
         size: buffer.length,
       });
     });
-    stream.on("error", (err) => {
+    audioStream.on("error", (err) => {
       console.error("Base64 stream error:", err.message);
       res.status(500).json({ error: err.message });
     });
