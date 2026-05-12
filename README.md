@@ -1,106 +1,107 @@
-# Edge TTS Server — Railway Deployment
+# Hindi Text-to-Speech (Edge TTS)
 
-Microsoft Edge TTS API using `edge-tts-node` + Express, ready for Railway.
+A production-ready full-stack web app to convert Hindi text into natural-sounding speech using **Microsoft Edge TTS** — no API key required.
 
----
+- **Frontend**: React + Vite
+- **Backend**: Node.js + Express
+- **TTS**: `msedge-tts` (free, no key needed)
+- **Deployment**: Railway-ready
 
-## 📁 Files
+## Features
 
-| File | Purpose |
-|------|---------|
-| `server.js` | Main Express server |
-| `package.json` | Dependencies + Node 18 engine |
-| `railway.json` | Railway deployment config |
-| `Procfile` | Process start command |
+- Paste Hindi text and generate MP3 narration
+- Two Hindi neural voices: `hi-IN-MadhurNeural` (male), `hi-IN-SwaraNeural` (female)
+- Speed (rate) and pitch controls
+- In-browser audio preview + MP3 download
+- Loading state, error handling, mobile responsive
+- Auto-cleanup of temp audio files (>30 min old)
+- Health check endpoint at `/health`
+- CORS enabled
+- Optional `.env` API key slot for future integrations
 
----
+## Project Structure
 
-## 🚀 Deploy to Railway
-
-1. Push all files to a GitHub repo
-2. Go to [railway.app](https://railway.app) → New Project → Deploy from GitHub
-3. Select your repo → Railway auto-detects and deploys
-4. Wait ~2 min → get your live URL
-
----
-
-## 📡 API Endpoints
-
-### GET /health
-Check server is running.
 ```
-curl https://your-app.up.railway.app/health
+hindi-tts/
+├── backend/
+│   └── index.js        # Express server + TTS API
+├── frontend/
+│   ├── index.html
+│   └── src/
+│       ├── App.jsx
+│       ├── main.jsx
+│       └── styles.css
+├── .env.example
+├── package.json
+├── railway.json
+└── vite.config.js
 ```
 
-### GET /voices
-Get all available TTS voices (with fallback if Microsoft unreachable).
-```
-curl https://your-app.up.railway.app/voices
-```
+## Run Locally
 
-### POST /tts
-Stream MP3 audio directly.
 ```bash
-curl -X POST https://your-app.up.railway.app/tts \
-  -H "Content-Type: application/json" \
-  -d '{"text":"नमस्ते दुनिया","voice":"hi-IN-SwaraNeural"}' \
-  --output audio.mp3
+cd hindi-tts
+npm install
+cp .env.example .env
+npm run dev
 ```
 
-**Body params:**
-| Param | Default | Description |
-|-------|---------|-------------|
-| text | "Hello test" | Text to convert (max 5000 chars) |
-| voice | "hi-IN-SwaraNeural" | Voice name |
-| rate | "+0%" | Speed e.g. "+20%" faster, "-10%" slower |
-| pitch | "+0Hz" | Pitch e.g. "+10Hz" higher |
+- Frontend: http://localhost:5173
+- Backend:  http://localhost:3001
+- Health:   http://localhost:3001/health
 
-### POST /tts-base64
-Returns audio as base64 JSON (use if streaming causes issues on frontend).
-```bash
-curl -X POST https://your-app.up.railway.app/tts-base64 \
-  -H "Content-Type: application/json" \
-  -d '{"text":"Hello world","voice":"en-US-AriaNeural"}'
-```
-Response:
+## API
+
+### `POST /api/tts`
+Body:
 ```json
 {
-  "success": true,
-  "audio": "SUQzBAAAAAAAI...",
-  "mimeType": "audio/mpeg",
-  "size": 12480
+  "text": "नमस्ते दुनिया",
+  "voice": "hi-IN-MadhurNeural",
+  "rate": 0,
+  "pitch": 0
 }
 ```
-
----
-
-## 🎤 Popular Voices
-
-| Voice | Language | Gender |
-|-------|----------|--------|
-| hi-IN-SwaraNeural | Hindi | Female |
-| hi-IN-MadhurNeural | Hindi | Male |
-| en-US-AriaNeural | English US | Female |
-| en-US-GuyNeural | English US | Male |
-| en-IN-NeerjaNeural | English India | Female |
-| ta-IN-PallaviNeural | Tamil | Female |
-| te-IN-ShrutiNeural | Telugu | Female |
-
----
-
-## 🔧 Local Development
-
-```bash
-npm install
-npm run dev   # uses nodemon for auto-restart
-# or
-npm start
+Returns:
+```json
+{ "success": true, "id": "...", "url": "/api/audio/<id>.mp3" }
 ```
 
----
+### `GET /api/audio/:file`
+Streams the generated MP3.
 
-## ❗ If Still Getting 500
+### `GET /health`
+Returns `{ "status": "ok" }`.
 
-Railway may block Microsoft TTS endpoints. Use `/tts-base64` instead of `/tts` — it buffers the full audio before sending, which avoids stream piping issues.
+## Deploy on Railway
 
-If completely blocked, switch to `gTTS` (Google TTS) or browser's built-in `speechSynthesis` API as fallback.
+1. **Push to GitHub**
+   ```bash
+   git init
+   git add .
+   git commit -m "Initial commit: Hindi TTS"
+   git branch -M main
+   git remote add origin https://github.com/<you>/hindi-tts.git
+   git push -u origin main
+   ```
+
+2. **Create Railway project**
+   - Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo**
+   - Pick your `hindi-tts` repo.
+
+3. **Environment variables (optional)**
+   In Railway → **Variables**, add anything from `.env.example` you need. Edge TTS itself requires nothing.
+   - `OPTIONAL_API_KEY` — reserved slot for future use
+
+4. **Deploy**
+   Railway uses Nixpacks. It will run `npm install && npm run build`, then `npm start`. The Express server serves both API and the built frontend on `process.env.PORT`.
+
+5. **Verify**
+   - Open your Railway URL → use the app.
+   - Visit `/health` → should return `{ "status": "ok" }`.
+
+## Notes
+
+- Temp MP3s are written to `/tmp/hindi-tts` (configurable via `TMP_DIR`) and auto-deleted after 30 minutes.
+- Max input length: 5000 characters.
+- If Edge TTS rate-limits or fails, the API returns a clear error message.
